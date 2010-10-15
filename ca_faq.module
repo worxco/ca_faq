@@ -1,0 +1,169 @@
+<?php
+
+include_once('ca_faq.features.inc');
+
+function ca_faq_init() {
+  drupal_add_css(drupal_get_path('module', 'ca_faq') .'/ca_faq.css');
+}
+
+function ca_faq_menu() {
+  $items = array();
+  $items['faq/admin/sort'] = array(
+    'title' => 'Sort Questions',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('ca_faq_sort_questions'),
+    'access arguments' => array('sort faq questions'),
+    'type' => MENU_LOCAL_TASK,
+  );
+  return $items;
+}
+
+function ca_faq_perm() {
+  return array('sort faq questions');
+}
+
+function ca_faq_sort_questions() {
+  $query = db_query('SELECT n.*, wfw.weight FROM {node} n INNER JOIN {ca_faq_weight} wfw ON n.nid = wfw.nid WHERE n.type = "ca_faq" ORDER BY wfw.weight');
+  $form = array();
+  while ($result = db_fetch_object($query)) {
+    $result = node_load($result->nid);
+    $key = $result->nid;
+    $form['info'][$key] = array(
+      '#value' => $result->title,
+    );
+    $form['weight'][$key] = array(
+      '#type' => 'weight',
+      '#default_value' => $result->weight,
+    );
+  }
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Save Sort'),
+  );
+  return $form;
+}
+
+function theme_ca_faq_sort_questions($form) {
+  drupal_set_title('Sort Frequently Asked Questions');
+  $header = array(t('Question'), t('Weight'));
+  $rows = array();
+  foreach (element_children($form['info']) as $id) {
+    if (is_array($form['info'][$id])) {
+      $form['weight'][$id]['#attributes']['class'] = 'ca-faq-weight';
+      $rows[] = array(
+        'data' => array(drupal_render($form['info'][$id]), drupal_render($form['weight'][$id])),
+        'class' => 'draggable',
+      );
+    }
+  }
+  $output = theme('table', $header, $rows, array('id' => 'ca-faq-order-table'));
+  $output .= drupal_render($form);
+  
+  drupal_add_tabledrag('ca-faq-order-table', 'order', 'sibling', 'ca-faq-weight', NULL, NULL, TRUE);
+  
+  return $output;
+}
+
+function ca_faq_sort_questions_submit($form, $form_state) {
+  foreach ($form_state['values'] as $nid => $weight) {
+    if (is_numeric($nid)) {
+      db_query("UPDATE {ca_faq_weight} SET weight = %d WHERE nid = %d", $weight, $nid);
+    }
+  }
+}
+
+function ca_faq_form_alter(&$form, &$form_state, $form_id) {
+  switch ($form_id) {
+    case 'ca_faq_node_form':
+      unset($form['title']);
+      break;
+  }
+}
+
+function ca_faq_nodeapi(&$node, $op, $a3 = NULL, $a4 = NULL) {
+  switch ($op) {
+    case 'presave':
+      if ($node->type == 'ca_faq') {
+        $title = substr($node->field_ca_faq_question[0]['value'], 0, 30);
+        $title = explode(' ', $title);
+        array_pop($title);
+        $node->title = implode(' ', $title) .'...';
+      }
+      break;
+    case 'insert':
+      if ($node->type == 'ca_faq') {
+        db_query("INSERT INTO {ca_faq_weight} (nid) VALUES (%d)", $node->nid);
+        drupal_goto('faq');
+      }
+      break;
+    case 'view':
+      if ($node->type == 'ca_faq' && menu_get_object()->nid === $node->nid) {
+        global $user;
+        $roles = $user->roles;
+        foreach ($roles as $role) {
+          if ($role == 'administrative user' || $role == 'webmaster' || $user->uid == 1) {
+            $view = TRUE;
+          }
+        }
+        if (!$view) {
+          drupal_goto('faq');
+        }
+        else {
+          drupal_set_message(t('FAQ Nodes are not viewable by non-administrative users.  You can only see this page because of your administrative status.'));
+        }
+      }
+      break;
+    case 'delete':
+      db_query("DELETE FROM {ca_faq_weight} WHERE nid = %d", $node->nid);
+      break;
+  }
+}
+
+/**
+ * Implementation of the hook_theme().
+ */
+
+function ca_faq_theme($existing, $type, $theme, $path) {
+  return array(
+    'ca_faq_sort_questions' => array(
+      'arguments' => array('form' => NULL),
+    ),
+  );
+}
+
+function ca_faq_theme_registry_alter(&$theme_registry) {
+  $theme_registry['node']['theme paths'][] = drupal_get_path('module', 'ca_faq') ."/themes";
+}
+
+/**
+ * Implementation of hook_views_data()
+ */
+
+function ca_faq_views_data() {
+  $data['ca_faq_weight']['table']['group'] = t('Context Admin FAQ Weight');
+  
+  $data['ca_faq_weight']['table']['join']['node'] = array(
+    'left_field' => 'nid',
+    'field' => 'nid',
+  );
+  $data['ca_faq_weight']['nid'] = array(
+    'title' => t('Nid'),
+    'help' => t('The node ID of the node.'),
+    'relationship' => array(
+      'title' => t('Node Weight'),
+      'help' => t('Provides a relationship to the ca_faq_weight table.'),
+      'handler' => 'views_handler_relationship',
+      'base' => 'node',
+      'field' => 'nid',
+      'label' => t('node weight'),
+    ),
+  );
+  $data['ca_faq_weight']['weight'] = array(
+    'title' => t('Weight'),
+    'help' => t('A ca_faq node\'s weight.'),
+    'sort' => array(
+      'handler' => 'views_handler_sort',
+    ),
+  );
+  return $data;
+}

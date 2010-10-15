@@ -1,0 +1,32 @@
+<?php
+
+function ca_faq_schema() {
+  $schema['ca_faq_weight'] = array(
+    'description' => 'An accounting of ca_faq nodes individual weights',
+    'fields' => array(
+      'nid' => array(
+        'description' => 'The primary identifier for a node.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE
+      ),
+      'weight' => array(
+        'description' => 'Context Admin FAQ node type weight.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'size' => 'tiny',
+      ),
+    ),
+    'primary key' => array('nid'),
+  );
+  return $schema;
+}
+
+function ca_faq_install() {
+  drupal_install_schema('ca_faq');
+}
+
+function ca_faq_uninstall() {
+  drupal_uninstall_schema('ca_faq');
+}
